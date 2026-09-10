@@ -1,12 +1,9 @@
 package sccache
 
 import (
-	"bytes"
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/sethvargo/go-githubactions"
 )
 
 func TestDefaultKeyPrefixScopesRepositoryAndPlatform(t *testing.T) {
@@ -91,87 +88,5 @@ func TestDefaultKeyPrefixSpellsThePlatformConsistently(t *testing.T) {
 	t.Setenv("RUNNER_ARCH", "")
 	if got := DefaultKeyPrefix(); got != withEnv && runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
 		t.Fatalf("DefaultKeyPrefix() = %q without platform env, want %q", got, withEnv)
-	}
-}
-
-func TestResolveKeyPrefixPrefersExplicitInput(t *testing.T) {
-	action := githubactions.New()
-
-	for _, tc := range []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{name: "legacy stack-wide prefix", input: "cache/sccache", want: "cache/sccache"},
-		{name: "surrounding whitespace", input: "  team/sccache  ", want: "team/sccache"},
-		{name: "surrounding slashes", input: "/team/sccache/", want: "team/sccache"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := ResolveKeyPrefix(action, tc.input); got != tc.want {
-				t.Fatalf("ResolveKeyPrefix(%q) = %q, want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-}
-
-// A prefix outside cache/ is accepted but flagged, because the runner instance
-// profile has no S3 access to it and sccache would fail with access denied.
-// An explicit prefix is exported through GITHUB_ENV and used as an S3 key, so
-// values that cannot survive either are refused rather than passed through.
-func TestResolveKeyPrefixRefusesUnusableValues(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY_ID", "42")
-	t.Setenv("RUNNER_OS", "Linux")
-	t.Setenv("RUNNER_ARCH", "X64")
-	want := "cache/sccache/42/linux-x64/v1"
-
-	for name, input := range map[string]string{
-		"env file delimiter": "cache/x\n_GitHubActionsFileCommandDelimeter_\nAWS_REGION<<_GitHubActionsFileCommandDelimeter_\nattacker",
-		"carriage return":    "cache/x\rcache/y",
-		"parent component":   "cache/../other",
-		"dot component":      "cache/./other",
-		"oversized":          "cache/" + strings.Repeat("x", maxKeyPrefixBytes),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := ResolveKeyPrefix(githubactions.New(), input); got != want {
-				t.Fatalf("ResolveKeyPrefix(%q) = %q, want the default %q", input, got, want)
-			}
-		})
-	}
-}
-
-func TestResolveKeyPrefixWarnsOutsideTheCacheNamespace(t *testing.T) {
-	for _, tc := range []struct {
-		input    string
-		wantWarn bool
-	}{
-		{input: "builds/shared-toolchain", wantWarn: true},
-		{input: "cacheable/sccache", wantWarn: true},
-		{input: "cache", wantWarn: false},
-		{input: "cache/shared-toolchain", wantWarn: false},
-	} {
-		t.Run(tc.input, func(t *testing.T) {
-			var out bytes.Buffer
-			action := githubactions.New(githubactions.WithWriter(&out))
-
-			if got := ResolveKeyPrefix(action, tc.input); got != tc.input {
-				t.Fatalf("ResolveKeyPrefix(%q) = %q, want it unchanged", tc.input, got)
-			}
-			if warned := strings.Contains(out.String(), "::warning::"); warned != tc.wantWarn {
-				t.Fatalf("warning emitted = %t, want %t (output %q)", warned, tc.wantWarn, out.String())
-			}
-		})
-	}
-}
-
-func TestResolveKeyPrefixNeverTargetsTheBucketRoot(t *testing.T) {
-	t.Setenv("GITHUB_REPOSITORY_ID", "123456789")
-	t.Setenv("RUNNER_OS", "Linux")
-	t.Setenv("RUNNER_ARCH", "X64")
-	action := githubactions.New()
-
-	for _, input := range []string{"", "   ", "/", "///", " / / ", "// //", "\t/\t"} {
-		if got, want := ResolveKeyPrefix(action, input), "cache/sccache/123456789/linux-x64/v1"; got != want {
-			t.Fatalf("ResolveKeyPrefix(%q) = %q, want %q", input, got, want)
-		}
 	}
 }

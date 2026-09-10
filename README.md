@@ -307,13 +307,18 @@ Example:
 jobs:
   build:
     runs-on: runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/extras=s3-cache
+    env:
+      CARGO_INCREMENTAL: "0"
     steps:
       - uses: runs-on/action@v2
         with:
           sccache: s3
-      - uses: mozilla-actions/sccache-action@v0.0.9
-      - run: # your slow rust compilation
+      - uses: mozilla-actions/sccache-action@v0.0.11
+      - uses: actions/checkout@v7
+      - run: cargo build --release --locked
 ```
+
+For Rust, disable incremental compilation as shown above. Run this action before the installer or any command that starts the sccache server: a running server keeps its startup configuration. This action exports settings; the separate installer supplies the executable.
 
 Possible values:
 
@@ -376,9 +381,11 @@ with:
     custom,path=vendor/custom-cache,path=~/.cache/my-tool
 ```
 
-On RunsOn runners, the action fails if the sticky disk is absent or does not
-become ready before `sticky_wait_timeout`. On any other runner (for example a
-workflow falling back to GitHub-hosted runners), the action skips all
+On RunsOn runners, the action fails if the sticky disk contract is absent or
+the disk does not become ready before `sticky_wait_timeout`. If the runner
+reports that the requested disk is unavailable, the action warns and skips all
+sticky cache operations so the job can continue cold. On any other runner (for
+example a workflow falling back to GitHub-hosted runners), the action skips all
 operations and exits successfully, so the same workflow keeps working without
 sticky caches. The `custom` mode requires one or more `path=` options;
 repeat the record or option to persist several paths. Relative paths resolve

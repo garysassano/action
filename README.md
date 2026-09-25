@@ -330,6 +330,55 @@ echo "SCCACHE_S3_KEY_PREFIX=cache/sccache" >> $GITHUB_ENV
 echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
 ```
 
+### `mbx`
+
+Available on RunsOn runners.
+
+Configures [mbx (Mr. Boxington)](https://github.com/jdx/mr-boxington), a Rust build cache, to use the RunsOn S3 cache bucket as its [remote cache](https://github.com/jdx/mr-boxington/blob/main/docs/remote-cache.md). mbx stores each object once in the bucket, keyed by its content, and can also cache linking and build-script execution.
+
+The only parameter it can take for now is `s3`. Install mbx before this action, for instance with [`jdx/mr-boxington-action`](https://github.com/jdx/mr-boxington-action) and `backend: local`, which installs mbx without adding its own GitHub Actions cache. That backend clears any mbx remote configuration when it runs, so it has to come first.
+
+Example:
+
+```yaml
+jobs:
+  build:
+    runs-on: runs-on=${{ github.run_id }}/runner=2cpu-linux-x64/extras=s3-cache
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mr-boxington-action@v1
+        with:
+          backend: local
+      - uses: runs-on/action@v2
+        with:
+          mbx: s3
+      - run: mbx build --workspace
+```
+
+Possible values:
+
+* `s3` - Use RunsOn S3 cache bucket as mbx's remote cache
+* Empty string - Disable mbx configuration (default)
+
+What this does under the hood is the equivalent of:
+
+```bash
+echo "MBX_REMOTE_URL=s3://${{ env.RUNS_ON_S3_BUCKET_CACHE }}/cache/mbx" >> $GITHUB_ENV
+echo "MBX_REMOTE_NAMESPACE=${{ github.repository_id }}" >> $GITHUB_ENV
+echo "MBX_REMOTE_S3_REGION=${{ env.RUNS_ON_AWS_REGION }}" >> $GITHUB_ENV
+echo "MBX_REMOTE_MODE=read-write" >> $GITHUB_ENV
+```
+
+It also exports the runner instance role's temporary credentials as `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`, masked in the logs. mbx reads credentials only from those variables, not from the instance profile.
+
+Objects are stored under `cache/mbx/<repository ID>/v1/` and expire with the rest of the cache bucket. mbx adds the `v1/` layout itself.
+
+Keep in mind:
+
+* **Who writes.** mbx only publishes from pushes to protected branches. Pull requests, unprotected branches, tags, and releases only read. That is mbx's own client-side policy, not an access boundary: the runner role can write anywhere under `cache/`, so code in any job on the stack could write to the bucket directly.
+* **Credential lifetime.** The exported credentials are a snapshot that mbx cannot refresh. The action logs when they expire and warns when less than an hour remains. A job that runs past that loses the remote cache, and mbx reports the rejected requests as errors. Later steps' AWS tools also pick up these variables instead of the instance profile.
+* **Containers.** Docker and BuildKit builds do not inherit these variables. Pass them in explicitly, for example as BuildKit secrets, and never bake them into an image.
+
 ### `sticky_cache`
 
 Available for Linux and Windows runners on jobs with a sticky-disk label. Use `sticky=<size>` for the default snapshot lineage or `sticky=<name>:<size>` for a named lineage; the optional name must come first. Volume settings follow the size, for example `sticky=go-cache:20gb:gp3:750mbs:6000iops`. The `apt`, `buildkit`, and `git` cache modes are Linux only.

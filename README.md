@@ -336,7 +336,7 @@ Available on RunsOn runners.
 
 Configures [mbx (Mr. Boxington)](https://github.com/jdx/mr-boxington), a Rust build cache, to use the RunsOn S3 cache bucket as its [remote cache](https://github.com/jdx/mr-boxington/blob/main/docs/remote-cache.md). mbx stores each object once in the bucket, keyed by its content, and can also cache linking and build-script execution.
 
-The only parameter it can take for now is `s3`. Install mbx before this action, for instance with [`jdx/mr-boxington-action`](https://github.com/jdx/mr-boxington-action) and `backend: local`, which installs mbx without adding its own GitHub Actions cache. That backend clears any mbx remote configuration when it runs, so it has to come first.
+The only parameter it can take for now is `s3`. This action configures mbx but does not install it. With [`jdx/mr-boxington-action`](https://github.com/jdx/mr-boxington-action), use `backend: local`: it installs mbx without keeping a cache of its own, and the S3 remote comes from this action. `local` also clears any mbx remote configuration when it runs, so it has to come before this action. In a repository that already declares `mr-boxington` in its `mise.toml`, [`jdx/mise-action`](https://github.com/jdx/mise-action) installs mbx without touching its remote configuration, so the order doesn't matter.
 
 Example:
 
